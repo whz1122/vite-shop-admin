@@ -1,0 +1,224 @@
+<template>
+  <el-card shadow="never" class="border-0">
+    <!--新增/刷新-->
+    <ListHeader @create="handleCreate" @refresh="getData" />
+    <div v-loading="loading">
+      <el-table :data="tableData" stripe style="width: 100%">
+        <el-table-column prop="name" label="角色名称" />
+        <el-table-column prop="desc" label="角色描述" />
+        <el-table-column label="状态">
+          <template #default="{ row }">
+            <el-switch
+              :loading="row.statusLoading"
+              :active-value="true"
+              :inactive-value="false"
+              :modelValue="row.status"
+              :disabled="row.super == 1"
+              :activeValue="1"
+              :inactiveValue="0"
+              @change="handleStatusChange($event, row)"
+            >
+            </el-switch>
+          </template>
+        </el-table-column>
+        <el-table-column prop="create_time" label="创建时间" />
+        <el-table-column label="操作" align="center">
+          <template #default="scope">
+            <el-button
+              type="primary"
+              text
+              size="default"
+              @click="openSetRule(scope.row)"
+              >权限配置</el-button
+            >
+            <el-button
+              type="primary"
+              text
+              size="default"
+              @click="handleUpdate(scope.row)"
+              >修改</el-button
+            >
+            <el-popconfirm
+              title="是否删除该分类"
+              confirmButtonText="确认"
+              cancelButtonText="取消"
+              @confirm="handleDelete(scope.row.id)"
+            >
+              <template #reference>
+                <el-button type="primary" text size="default">删除</el-button>
+              </template>
+            </el-popconfirm>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="flex items-center justify-center mt-5">
+        <el-pagination
+          small
+          background
+          layout="prev,pager,next"
+          :total="total"
+          :current-page="currentPage"
+          :page-size="limit"
+          @current-change="getData"
+        />
+      </div>
+    </div>
+    <FormDrawer ref="formDrawerRef" :title="drawerTitle" @submit="handleSubmit">
+      <el-form
+        :model="form"
+        ref="formRef"
+        :rules="rules"
+        label-width="80px"
+        :inline="false"
+      >
+        <el-form-item label="角色名称" prop="name">
+          <el-input v-model="form.name"></el-input>
+        </el-form-item>
+        <el-form-item label="角色描述" prop="desc">
+          <el-input v-model="form.desc"></el-input>
+        </el-form-item>
+        <el-form-item label="角色描述" prop="status">
+          <el-switch
+            v-model="form.status"
+            :active-value="1"
+            :inactive-value="0"
+          >
+          </el-switch>
+        </el-form-item>
+      </el-form>
+    </FormDrawer>
+    <!--权限配置-->
+    <FormDrawer
+      ref="setRuleFormDrawerRef"
+      title="权限配置"
+      @submit="handleSetRuleSubmit"
+    >
+      <el-tree-v2
+        ref="elTreeRef"
+        node-key="id"
+        :check-strictly="checkStrictly"
+        :default-expanded-keys="defaultExpandedKeys"
+        :data="ruleList"
+        :props="{ label: 'name', children: 'child' }"
+        show-checkbox
+        :height="treeHeight"
+        @check="handleTreeCheck"
+      >
+        <template #default="{ node, data }">
+          <div class="flex items-center">
+            <el-tag :type="data.menu ? 'primary' : 'info'" size="small">{{
+              data.menu ? "菜单" : "权限"
+            }}</el-tag>
+            <span class="ml-2 text-sm">{{ data.name }}</span>
+          </div>
+        </template>
+      </el-tree-v2>
+    </FormDrawer>
+  </el-card>
+</template>
+
+<script setup>
+import { ref } from "vue";
+import ListHeader from "~/components/ListHeader.vue";
+import FormDrawer from "~/components/FormDrawer.vue";
+import { getRuleList } from "~/api/rule.js";
+import { toast } from "~/composables/util.js";
+import {
+  getRoleList,
+  createRole,
+  updateRole,
+  deleteRole,
+  updateRoleStatus,
+  setRoleRules,
+} from "~/api/role.js";
+import { useInitTable, useInitForm } from "~/composables/useCommon.js";
+const {
+  currentPage,
+  total,
+  limit,
+  loading,
+  getData,
+  tableData,
+  handleDelete,
+  handleStatusChange,
+} = useInitTable({
+  getList: getRoleList,
+  delete: deleteRole,
+  updateStatus: updateRoleStatus,
+});
+//vue3组合式API
+const {
+  formDrawerRef,
+  editId,
+  drawerTitle,
+  formRef,
+  form,
+  rules,
+  handleUpdate,
+  restForm,
+  handleSubmit,
+  handleCreate,
+} = useInitForm({
+  getData,
+  update: updateRole,
+  create: createRole,
+  form: {
+    name: "",
+    desc: "",
+    status: 1,
+  },
+  rules: {
+    name: [{ required: true, message: "不能为空", trigger: "blur" }],
+  },
+});
+getData();
+const setRuleFormDrawerRef = ref(null);
+const ruleList = ref([]);
+const treeHeight = ref(0);
+const roleId = ref(0);
+const defaultExpandedKeys = ref([]);
+const elTreeRef = ref(null);
+// 当前角色拥有的权限ID
+const ruleIds = ref([]);
+const checkStrictly = ref(false);
+
+const openSetRule = (row)=>{
+  roleId.value = row.id
+  treeHeight.value = window.innerHeight - 180
+  checkStrictly.value = true
+
+  getRuleList(1).then(res=>{
+    ruleList.value = res.list
+    defaultExpandedKeys.value = res.list.map(o=>o.id)
+    setRuleFormDrawerRef.value.open()
+
+    // 当前角色拥有的权限ID
+    ruleIds.value = row.rules.map(o=>o.id)
+    setTimeout(() => {
+      elTreeRef.value.setCheckedKeys(ruleIds.value)
+      checkStrictly.value = false
+    }, 150);
+  })
+}
+
+const handleSetRuleSubmit = () => {
+  setRuleFormDrawerRef.value.showLoading();
+  setRoleRules(roleId.value, ruleIds.value)
+    .then((res) => {
+      toast("配置成功");
+      getData();
+      setRuleFormDrawerRef.value.close();
+    })
+    .finally(() => {
+      setRuleFormDrawerRef.value.hideLoading();
+    });
+};
+
+const handleTreeCheck = (...e) => {
+  const { checkedKeys, halfCheckedKeys } = e[1];
+  ruleIds.value = [...checkedKeys, ...halfCheckedKeys];
+};
+</script>
+
+<style>
+</style>

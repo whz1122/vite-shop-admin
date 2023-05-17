@@ -1,0 +1,222 @@
+<template>
+  <el-card shadow="never" class="border-0">
+    <!--搜索-->
+    <el-form :model="searchForm" label-width="80px" class="mb-3">
+      <el-row :gutter="20">
+        <el-col :span="8" :offset="0">
+          <el-form-item label="关键词">
+            <el-input v-model="searchForm.keyword"></el-input> </el-form-item
+        ></el-col>
+        <el-col :span="8" :offset="0">
+          <el-form-item>
+            <el-button type="primary" @click="getData">搜索</el-button>
+            <el-button @click="resetsearchForm">取消</el-button>
+          </el-form-item>
+        </el-col>
+        <el-col :span="8" :offset="0"></el-col>
+      </el-row>
+    </el-form>
+
+    <!--新增/刷新-->
+   <ListHeader @create="handleCreate" @refresh="getData"/>
+    <div v-loading="loading">
+      <el-table :data="tableData" stripe style="width: 100%">
+        <el-table-column label="管理员" width="200">
+          <template #default="{ row }">
+            <div class="flex items-center">
+              <el-avatar
+                :size="60"
+                shape="circle"
+                :src="row.avatar"
+                fit="cover"
+              ></el-avatar>
+              <div class="ml-3">
+                <h6 class="truncate" style="width: 100px">
+                  {{ row.username }}
+                </h6>
+                <small>ID: {{ row.id }}</small>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="所属管理员">
+          <template #default="{ row }">
+            {{ row.role?.name || "--" }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态">
+          <template #default="{ row }">
+            <el-switch
+              :loading="row.statusLoading"
+              :active-value="true"
+              :inactive-value="false"
+              :modelValue="row.status"
+              :disabled="row.super == 1"
+              :activeValue="1"
+              :inactiveValue="0"
+              @change="handleStatusChange($event, row)"
+            >
+            </el-switch>
+          </template>
+        </el-table-column>
+        <el-table-column label="创建用户时间" prop="create_time" sortable>
+          <template #default="{ row }">
+            {{ row.create_time }}
+          </template>
+        </el-table-column>
+        <el-table-column label="最近修改时间" prop="update_time" sortable>
+          <template #default="{ row }">
+            {{ row.update_time }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="180" align="center">
+          <template #default="scope">
+            <small v-if="scope.row.super == 1" class="text-sm text-gray-400"
+              >暂无操作</small
+            >
+            <div v-else>
+              <el-button
+                type="primary"
+                text
+                size="default"
+                @click="handleUpdate(scope.row)"
+                >修改</el-button
+              >
+              <el-popconfirm
+                title="是否删除该分类"
+                confirmButtonText="确认"
+                cancelButtonText="取消"
+                @confirm="handleDelete(scope.row.id)"
+              >
+                <template #reference>
+                  <el-button type="primary" text size="default">删除</el-button>
+                </template>
+              </el-popconfirm>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="flex items-center justify-center mt-5">
+        <el-pagination
+          small
+          background
+          layout="prev,pager,next"
+          :total="total"
+          :current-page="currentPage"
+          :page-size="limit"
+          @current-change="getData"
+        />
+      </div>
+    </div>
+    <FormDrawer ref="formDrawerRef" :title="drawerTitle" @submit="handleSubmit">
+      <el-form
+        :model="form"
+        ref="formRef"
+        :rules="rules"
+        label-width="80px"
+        :inline="false"
+      >
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="form.username"></el-input>
+        </el-form-item>
+        <el-form-item label="密码" prop="password">
+          <el-input v-model="form.password"></el-input>
+        </el-form-item>
+        <el-form-item label="头像" prop="avatar">
+          <ChooseImage v-model="form.avatar" />
+        </el-form-item>
+        <el-form-item label="所属角色" prop="role_id">
+          <el-select v-model="form.role_id" placeholder="选择所属角色">
+            <el-option
+              v-for="item in roles"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            >
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="状态" prop="status">
+          <el-switch
+            v-model="form.status"
+            :active-value="1"
+            :inactive-value="0"
+          >
+          </el-switch>
+        </el-form-item>
+      </el-form>
+    </FormDrawer>
+  </el-card>
+</template>
+
+<script setup>
+import { ref } from "vue";
+import FormDrawer from "~/components/FormDrawer.vue";
+import ChooseImage from "~/components/ChooseImage.vue";
+import ListHeader from '~/components/ListHeader.vue'
+import {
+  getManagerList,
+  updateManagerStatus,
+  createManager,
+  updateManager,
+  deleteManager,
+} from "~/api/manager.js";
+import { useInitTable, useInitForm } from "~/composables/useCommon.js";
+//角色菜单
+const roles = ref([]);
+//vue3组合式API
+const {
+  searchForm,
+  resetsearchForm,
+  currentPage,
+  total,
+  limit,
+  loading,
+  getData,
+  tableData,
+  handleStatusChange,
+  handleDelete,
+} = useInitTable({
+  searchForm: {
+    keyword: "",
+  },
+  getList: getManagerList,
+  onGetListSuccess: (res) => {
+    tableData.value = res.list.map((o) => {
+      o.statusLoading = false;
+      return o;
+    });
+    roles.value = res.roles;
+    total.value = res.totalCount;
+  },
+  delete:deleteManager,
+  updateStatus:updateManagerStatus
+});
+//vue3组合式API
+const {
+  formDrawerRef,
+  editId,
+  drawerTitle,
+  formRef,
+  form,
+  rules,
+  handleUpdate,
+  restForm,
+  handleSubmit,
+  handleCreate,
+} = useInitForm({
+  getData,
+  update: updateManager,
+  create: createManager,
+  form: {
+    username: "",
+    password: "",
+    role_id: null,
+    status: 1,
+    avatar: "",
+  },
+});
+</script>
+
+<style>
+</style>
